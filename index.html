@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ESP32 TWOWAY CONTROL PANEL</title>
+    <!-- 💡 正解：Supabase公式のJavaScriptライブラリを読み込みます -->
+    <script src="https://jsdelivr.net"></script>
     <style>
         body { background: #0b0f19; color: #f3f4f6; font-family: 'Courier New', monospace; padding: 15px; margin: 0; }
         .frame { border: 2px solid #10b981; padding: 15px; border-radius: 8px; max-width: 400px; margin: 10px auto; background: #111827; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.5); }
@@ -19,6 +21,9 @@
         .btn-led:active { transform: translateY(4px); box-shadow: none; }
         .btn-led.active { background: #ef4444; box-shadow: 0 4px 0px #b91c1c; }
         .btn-led.active:active { box-shadow: none; }
+        .sync-indicator { text-align: center; font-size: 11px; color: #6b7280; margin-top: 10px; display: flex; align-items: center; justify-content: center; gap: 6px; }
+        .dot { width: 8px; h-eight: 8px; border-radius: 50%; background: #ef4444; display: inline-block; }
+        .dot.online { background: #10b981; box-shadow: 0 0 8px #10b981; }
         @keyframes blink { from { opacity: 1; } to { opacity: 0.6; } }
     </style>
 </head>
@@ -38,7 +43,7 @@
 
         <div class="box" style="display: flex; justify-content: space-between; align-items: center;">
             <span class="label" style="margin: 0;">BASE SWITCH(SW2)</span>
-            <span id="sw" class="status release">RELEASE</span>
+            <span id="sw" class="status release">OFFLINE</span>
         </div>
 
         <!-- 遠隔操作セクション -->
@@ -46,96 +51,88 @@
             <div class="label" style="color: #60a5fa; text-align: center;">REMOTE TELEMETRY</div>
             <button id="ledBtn" class="btn-led" onclick="toggleRemoteLed()">SEND: LED ON</button>
         </div>
+
+        <!-- 接続インジケーター -->
+        <div class="sync-indicator">
+            <span id="syncDot" class="dot"></span>
+            <span id="syncText">CONNECTING TO SUPABASE...</span>
+        </div>
     </div>
 
     <script>
-        // 🛠️ あなたのSupabase情報を正確に入力してください（URLの最後は .co で終わる形式）
+        // 🛠️ あなたのSupabase情報を正確に入力してください
         const SUPABASE_URL = "https://pppwabefjkebcilpukgo.supabase.co";
         const SUPABASE_KEY = "sb_publishable_q8HYrvNgLEv92iiIDR7pAw_hO5D5HP-"
 
         let ledState = false;
 
-         // ⭕ 修正版：Supabaseの正規ルールに沿った fetch 処理
-        async function fetchLatestData() {
-            try {
-                // URLに直接変なクエリをつけず、エンドポイントを綺麗にします
-                const response = await fetch(`${SUPABASE_URL}/realtime/v1/api/broadcast`, {
-                    method: 'GET',
-                    headers: {
-                        'apikey': SUPABASE_KEY,
-                        'Authorization': `Bearer ${SUPABASE_KEY}`,
-                        'Content-Type': 'application/json'
-                    }
-                });
+        // 1. Supabaseクライアントの初期化（公式の正規手順）
+        const supabase = Supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-                if (response.ok) {
-                    const resData = await response.json();
-                    
-                    // 💡 Supabaseから返ってきたすべてのリアルタイムメッセージから、
-                    // 今回の「esp32-status」トピックのデータだけをフィルターして抽出します
-                    if (resData && resData.messages && resData.messages.length > 0) {
-                        const espMsgs = resData.messages.filter(m => m.topic === "realtime:public:esp32-status");
-                        
-                        if (espMsgs.length > 0) {
-                            const latestMsg = espMsgs[espMsgs.length - 1];
-                            const data = latestMsg.payload;
-                            
-                            if (data) {
-                                document.getElementById('volt').innerText = `${data.volts.toFixed(3)} V`;
-                                document.getElementById('noise').innerText = `${data.noise.toFixed(1)} mV`;
-                                
-                                const sw = document.getElementById('sw');
-                                if(data.pressed) {
-                                    sw.innerText = "PRESSED";
-                                    sw.className = "status pressed";
-                                } else {
-                                    sw.innerText = "RELEASE";
-                                    sw.className = "status release";
-                                }
-                            }
-                        }
-                    }
+        // 2. WebSocketチャンネルの定義（ESP32と同じトピックを購読）
+        const channel = supabase.channel('esp32-status', {
+            config: { broadcast: { self: true } }
+        });
+
+        // 3. リアルタイムデータ受信イベントの登録
+        channel
+            .on('broadcast', { event: 'telemetry' }, (response) => {
+                const data = response.payload;
+                if (!data) return;
+
+                // ESP32から届いたデータを画面に超高速（リアルタイム）反映
+                document.getElementById('volt').innerText = `${data.volts.toFixed(3)} V`;
+                document.getElementById('noise').innerText = `${data.noise.toFixed(1)} mV`;
+                
+                // ノイズ値に応じた色変更（警告エフェクト）
+                const noiseEl = document.getElementById('noise');
+                if (data.noise > 50.0) {
+                    noiseEl.style.color = "#ef4444";
+                } else {
+                    noiseEl.style.color = "#10b981";
                 }
-            } catch (error) {
-                console.error("Fetch failed:", error);
-            }
-        }
 
-        // 1秒おきに自動でデータを取りに行くタイマーを起動
-        setInterval(fetchLatestData, 1000);
-        fetchLatestData(); // 初回起動
+                // スイッチ状態の更新
+                const sw = document.getElementById('sw');
+                if (data.pressed) {
+                    sw.innerText = "PRESSED";
+                    sw.className = "status pressed";
+                } else {
+                    sw.innerText = "RELEASE";
+                    sw.className = "status release";
+                }
+            })
+            .subscribe((status) => {
+                const dot = document.getElementById('syncDot');
+                const text = document.getElementById('syncText');
+                
+                if (status === 'SUBSCRIBED') {
+                    // 接続成功時の緑ランプ点灯
+                    dot.className = "dot online";
+                    text.innerText = "SUPABASE LIVE CONNECTED";
+                    document.getElementById('sw').innerText = "RELEASE";
+                } else {
+                    dot.className = "dot";
+                    text.innerText = "CONNECTION ERROR";
+                }
+            });
 
-        // ⭕ 遠隔操作ボタンを叩いた時、ESP32側のPOSTに対する「返却用バッファテーブル」へデータを直接射出
-        async function toggleRemoteLed() {
+        // 4. 遠隔操作ボタンを叩いた時、Broadcast命令を射出
+        function toggleRemoteLed() {
             ledState = !ledState;
             const btn = document.getElementById('ledBtn');
             btn.innerText = ledState ? "SEND: LED OFF" : "SEND: LED ON";
             btn.className = ledState ? "btn-led active" : "btn-led";
 
-            const bodyData = {
-                messages: [{
-                    topic: "realtime:public:esp32-ctrl",
-                    event: "led_control",
-                    type: "broadcast",
-                    payload: { led_cmd: ledState }
-                }]
-            };
-
-            try {
-                await fetch(`${SUPABASE_URL}/realtime/v1/api/broadcast`, {
-                    method: 'POST',
-                    headers: {
-                        'apikey': SUPABASE_KEY,
-                        'Authorization': `Bearer ${SUPABASE_KEY}`,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify(bodyData)
-                });
-            } catch (error) {
-                console.error("LED send failed:", error);
-            }
+            // 公式ライブラリの正しいBroadcast送信方法
+            channel.send({
+                type: 'broadcast',
+                event: 'telemetry', // ESP32がレスポンスで監視しているイベント名に合わせます
+                payload: { led_cmd: ledState }
+            });
         }
     </script>
 </body>
 </html>
+
 
