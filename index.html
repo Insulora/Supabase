@@ -24,9 +24,9 @@
         .dot.online { background: #10b981; box-shadow: 0 0 8px #10b981; }
         @keyframes blink { from { opacity: 1; } to { opacity: 0.6; } }
     </style>
-    <!-- 📦 解決策：Supabaseのプログラム（超軽量ミニ版）をここに直接埋め込みます -->
+    <!-- Supabase軽量ミニライブラリ -->
     <script>
-    !function(e,t){"object"==typeof exports&&"undefined"!=typeof module?t(exports):"function"==typeof define&&define.amd?define(["exports"],t):t((e="undefined"!=typeof globalThis?globalThis:e||self).Supabase={})}(this,(function(e){"use strict";class t{constructor(e,t){this.url=e,this.key=t}channel(e,t={}){const s=this.url.replace(/^http/,"ws")+"/realtime/v1/websocket?apikey="+this.key;let n=null,o=[];const r={on:(e,t,s)=>(o.push({event:t.event,callback:s}),r),subscribe:(e)=>{n=new WebSocket(s),n.onmessage=(e)=>{const t=JSON.parse(e.data);if("broadcast"===t.type)for(const e of o)e.event===t.event&&e.callback(t)},n.onopen=()=>{r.send({type:"active"}),e("SUBSCRIBED")},n.onerror=()=>e("CHANNEL_ERROR")},send:(e)=>{n&&n.readyState===WebSocket.OPEN&&n.send(JSON.stringify(Object.assign({topic:"realtime:public:"+e,ref:Math.random().toString()},e)))}};return r}}e.createClient=(e,e_s)=>new t(e,e_s),Object.defineProperty(e,"__esModule",{value:!0})}));
+    !function(e,t){"object"==typeof exports&&"undefined"!=typeof module?t(exports):"function"==typeof define&&define.amd?define(["exports"],t):t((e="undefined"!=typeof globalThis?globalThis:e||self).Supabase={})}(this,(function(e){"use strict";class t{constructor(e,t){this.url=e,this.key=t}channel(e){const t=this.url.replace(/^http/,"ws")+"/realtime/v1/websocket?apikey="+this.key;let s=null,n=[];const o={on:(e,t,s)=>(n.push({filter:t.filter,callback:s}),o),subscribe:(e)=>{s=new WebSocket(t),s.onmessage=(e)=>{const t=JSON.parse(e.data);if("postgres_changes"===t.event||(t.payload&&"UPDATE"===t.payload.type))for(const e of n)e.callback(t.payload.record||t.payload)},s.onopen=()=>{s.send(JSON.stringify({topic:"realtime:public",event:"phx_join",payload:{},ref:"1"})),e("SUBSCRIBED")},s.onerror=()=>e("CHANNEL_ERROR")},send:async(e)=>{await fetch(this.url+"/rest/v1/"+e.table+"?id=eq.esp32_01",{method:"PATCH",headers:{apikey:this.key,Authorization:"Bearer "+this.key,"Content-Type":"application/json"},body:JSON.stringify(e.payload)})}};return o}}e.createClient=(e,e_s)=>new t(e,e_s),Object.defineProperty(e,"__esModule",{value:!0})}));
     </script>
 </head>
 <body>
@@ -59,30 +59,28 @@
     </div>
 
     <script>
-        // 🛠️ あなたのSupabase情報を正確に入力してください
         const SUPABASE_URL = "https://pppwabefjkebcilpukgo.supabase.co";
         const SUPABASE_KEY = "sb_publishable_q8HYrvNgLEv92iiIDR7pAw_hO5D5HP-"
 
-
         let ledState = false;
-
-        // クライアントの初期化
         const supabase = Supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-        const channel = supabase.channel('esp32-status');
+        
+        // 💡 データベースのテーブル更新を監視するチャンネル
+        const channel = supabase.channel('table-db-changes');
 
         channel
-            .on('broadcast', { event: 'telemetry' }, (response) => {
-                const data = response.payload;
-                if (!data) return;
-
-                document.getElementById('volt').innerText = `${data.volts.toFixed(3)} V`;
-                document.getElementById('noise').innerText = `${data.noise.toFixed(1)} mV`;
+            .on('postgres_changes', { filter: "id=eq.esp32_01" }, (payload) => {
+                // ESP32がDBを書き換えた瞬間にここがリアルタイムに動く！
+                if (!payload) return;
+                
+                document.getElementById('volt').innerText = `${payload.volts.toFixed(3)} V`;
+                document.getElementById('noise').innerText = `${payload.noise.toFixed(1)} mV`;
                 
                 const noiseEl = document.getElementById('noise');
-                if (data.noise > 50.0) { noiseEl.style.color = "#ef4444"; } else { noiseEl.style.color = "#10b981"; }
+                if (payload.noise > 50.0) { noiseEl.style.color = "#ef4444"; } else { noiseEl.style.color = "#10b981"; }
 
                 const sw = document.getElementById('sw');
-                if (data.pressed) {
+                if (payload.pressed) {
                     sw.innerText = "PRESSED";
                     sw.className = "status pressed";
                 } else {
@@ -93,17 +91,14 @@
             .subscribe((status) => {
                 const dot = document.getElementById('syncDot');
                 const text = document.getElementById('syncText');
-                
                 if (status === 'SUBSCRIBED') {
                     dot.className = "dot online";
-                    text.innerText = "SUPABASE LIVE CONNECTED";
+                    text.innerText = "SUPABASE DB LIVE CONNECTED";
                     document.getElementById('sw').innerText = "RELEASE";
-                } else {
-                    dot.className = "dot";
-                    text.innerText = "CONNECTION ERROR";
                 }
             });
 
+        // ボタン操作でDBテーブルの led_cmd を直接書き換える
         function toggleRemoteLed() {
             ledState = !ledState;
             const btn = document.getElementById('ledBtn');
@@ -111,8 +106,7 @@
             btn.className = ledState ? "btn-led active" : "btn-led";
 
             channel.send({
-                type: 'broadcast',
-                event: 'telemetry',
+                table: 'device_status',
                 payload: { led_cmd: ledState }
             });
         }
