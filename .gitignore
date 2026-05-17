@@ -1,0 +1,11 @@
+# PlatformIOの一時ビルド・コンパイルファイルをGitから完全に除外
+.pio/
+.vsc_pvt/
+
+# VS Codeの設定ファイルやデバッグ用の一時ファイルを無視
+.vscode/.provider*
+.vscode/extensions.json
+
+# 将来的にパスワードや秘密のKeyを外部ファイルに分離する場合の安全策
+.env
+secret_define.h
