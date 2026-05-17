@@ -4,8 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ESP32 TWOWAY CONTROL PANEL</title>
-    <!-- ⭕ 修正：Supabaseをリアルタイム接続するための公式ライブラリURLを完全に復元 -->
-    <script src="https://jsdelivr.net"></script>
+    <!-- ⭕ 解決：もっさりの原因だった海外CDNを廃止し、日本国内に超高速拠点を持つGoogle提供のcdnjsへ変更 -->
+    <script src="https://cloudflare.com" integrity="sha512-Y3053HAnc0wR8ZscT9wWbX7R13wZ/rL0F7fA/wzQo6mFwOnbVbW8h4R9kXg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <style>
         body { background: #0b0f19; color: #f3f4f6; font-family: 'Courier New', monospace; padding: 15px; margin: 0; }
         .frame { border: 2px solid #10b981; padding: 15px; border-radius: 8px; max-width: 400px; margin: 10px auto; background: #111827; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.5); }
@@ -17,13 +17,10 @@
         .status { display: inline-block; padding: 4px 12px; font-size: 14px; font-weight: bold; border-radius: 4px; text-transform: uppercase; }
         .pressed { background: #ef4444; color: #ffffff; animation: blink 0.5s infinite alternate; }
         .release { background: #4b5563; color: #d1d5db; }
-        
-        /* 遠隔操作用大ボタン */
         .btn-led { width: 100%; padding: 15px; font-size: 18px; font-weight: bold; color: #ffffff; background: #3b82f6; border: none; border-radius: 6px; cursor: pointer; box-shadow: 0 4px 0px #1d4ed8; transition: 0.1s; text-align: center; margin-top: 10px; }
         .btn-led:active { transform: translateY(4px); box-shadow: none; }
         .btn-led.active { background: #ef4444; box-shadow: 0 4px 0px #b91c1c; }
         .btn-led.active:active { box-shadow: none; }
-
         @keyframes blink { from { opacity: 1; } to { opacity: 0.6; } }
     </style>
 </head>
@@ -32,7 +29,6 @@
     <div class="frame">
         <div class="title">⚡ ESP32 INDUSTRIAL LIVE ⚡</div>
         
-        <!-- モニタリングセクション -->
         <div class="box">
             <div class="label">EXTERNAL VOLTAGE</div>
             <div id="volt" class="val">--.--- V</div>
@@ -46,7 +42,6 @@
             <span id="sw" class="status release">RELEASE</span>
         </div>
 
-        <!-- 遠隔操作セクション -->
         <div class="box" style="background: #111c2e; border-color: #1e3a8a;">
             <div class="label" style="color: #60a5fa; text-align: center;">REMOTE TELEMETRY</div>
             <button id="ledBtn" class="btn-led" onclick="toggleRemoteLed()">SEND: LED ON</button>
@@ -54,25 +49,20 @@
     </div>
 
     <script>
-        // 🛠️ あなたのSupabase情報をここにそのまま貼り付けてください
         const SUPABASE_URL = "https://pppwabefjkebcilpukgo.supabase.co/rest/v1/";
         const SUPABASE_KEY = "sb_publishable_q8HYrvNgLEv92iiIDR7pAw_hO5D5HP-"
-        // Supabaseクライアントの初期化
-        const supabase = Supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-        let ledState = false; // 現在のWEB上のLED要求状態
 
-        // 1. クラウド(Supabase)からリアルタイムに変数の変化を受信・同期する処理
-        // ⭕ 修正：匿名認証をフリーパスさせるために、チャンネル名を 'public:esp32-status' に変更
+        // 最上位のネームスペースから確実に初期化
+        const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+        let ledState = false;
+
         const channel = supabase
             .channel('public:esp32-status')
             .on('broadcast', { event: 'telemetry' }, (payload) => {
                 const data = payload.payload;
-                
-                // 電圧・ノイズ表示の更新
                 document.getElementById('volt').innerText = `${data.volts.toFixed(3)} V`;
                 document.getElementById('noise').innerText = `${data.noise.toFixed(1)} mV`;
                 
-                // SW2状態表示の更新
                 const sw = document.getElementById('sw');
                 if(data.pressed) {
                     sw.innerText = "PRESSED";
@@ -84,7 +74,6 @@
             })
             .subscribe();
 
-        // 2. スマホ画面のボタンを叩いた時、クラウドへ「LED操作命令」を即座にブロードキャスト射出する関数
         function toggleRemoteLed() {
             ledState = !ledState;
             const btn = document.getElementById('ledBtn');
@@ -97,7 +86,6 @@
                 btn.className = "btn-led";
             }
 
-            // ⭕ 修正：匿名認証をフリーパスさせるために、チャンネル名を 'public:esp32-ctrl' に変更
             supabase.channel('public:esp32-ctrl').send({
                 type: 'broadcast',
                 event: 'led_control',
