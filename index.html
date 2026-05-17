@@ -4,8 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ESP32 TWOWAY CONTROL PANEL</title>
-    <!-- ⭕ 改善：もっさりの原因だった重い海外JSを廃止し、超軽量リアルタイムMQTT用CDNへ切り替え -->
-    <script src="https://cloudflare.com" type="text/javascript"></script>
+    <!-- 日本国内超高速CDN (cdnjs) からSupabase頭脳をロード -->
+    <script src="https://cloudflare.com" integrity="sha512-Y3053HAnc0wR8ZscT9wWbX7R13wZ/rL0F7fA/wzQo6mFwOnbVbW8h4R9kXg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <style>
         body { background: #0b0f19; color: #f3f4f6; font-family: 'Courier New', monospace; padding: 15px; margin: 0; }
         .frame { border: 2px solid #10b981; padding: 15px; border-radius: 8px; max-width: 400px; margin: 10px auto; background: #111827; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.5); }
@@ -29,7 +29,6 @@
     <div class="frame">
         <div class="title">⚡ ESP32 INDUSTRIAL LIVE ⚡</div>
         
-        <!-- モニタリングセクション -->
         <div class="box">
             <div class="label">EXTERNAL VOLTAGE</div>
             <div id="volt" class="val">--.--- V</div>
@@ -43,7 +42,6 @@
             <span id="sw" class="status release">RELEASE</span>
         </div>
 
-        <!-- 遠隔操作セクション -->
         <div class="box" style="background: #111c2e; border-color: #1e3a8a;">
             <div class="label" style="color: #60a5fa; text-align: center;">REMOTE TELEMETRY</div>
             <button id="ledBtn" class="btn-led" onclick="toggleRemoteLed()">SEND: LED ON</button>
@@ -51,25 +49,16 @@
     </div>
 
     <script>
-        // 🛠️ あなたのSupabase情報を正確に入力してください（URLの後ろに /rest/v1/ 等は不要です）
         const SUPABASE_URL = "pppwabefjkebcilpukgo.supabase.co";
         const SUPABASE_KEY = "sb_publishable_q8HYrvNgLEv92iiIDR7pAw_hO5D5HP-"
+        const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
         let ledState = false;
-        
-        // ブラウザ用のWebsocket暗号化ポート「443（WSS）」を利用して直結
-        const clientId = "Web_HMI_Panel_" + Math.random().toString(16).substr(2, 8);
-        const client = new Paho.MQTT.Client("wss://" + SUPABASE_HOST + "/realtime/v1/websocket", clientId);
 
-        // 各種イベントハンドラ登録
-        client.onConnectionLost = (responseObject) => {
-            console.log("MQTT Connection Lost. Reconnecting...");
-            setTimeout(connectMQTT, 2000);
-        };
-
-        client.onMessageArrived = (message) => {
-            // ESP32から測定データ（パケット）が降ってきた時のリアルタイムパース
-            if (message.destinationName === "realtime/public/esp32-status") {
-                const data = JSON.parse(message.payloadString);
+        // ESP32から届くデータを常時キャッチするリアルタイム監視チャンネルの確立
+        const channel = supabase
+            .channel('public:esp32-status')
+            .on('broadcast', { event: 'telemetry' }, (payload) => {
+                const data = payload.payload;
                 document.getElementById('volt').innerText = `${data.volts.toFixed(3)} V`;
                 document.getElementById('noise').innerText = `${data.noise.toFixed(1)} mV`;
                 
@@ -81,45 +70,26 @@
                     sw.innerText = "RELEASE";
                     sw.className = "status release";
                 }
-            }
-        };
+            })
+            .subscribe();
 
-        function connectMQTT() {
-            // Supabaseへの認証パスワード（Key）をのせてガチッと接続固定
-            client.connect({
-                userName: "supabase",
-                password: SUPABASE_KEY,
-                useSSL: true,
-                onSuccess: () => {
-                    console.log("MQTT Connected to Cloud Gateway!");
-                    // 基板からのデータ（status）の電波をサブスクライブ開始
-                    client.subscribe("realtime/public/esp32-status");
-                }
+        // ⭕ ESP32からアクセスがあった際、このWEB上のLED状態（ON/OFF）を自動返却するインターフェース
+        supabase.channel('public:esp32-ctrl').on('broadcast', { event: 'led_req' }, () => {
+            supabase.channel('public:esp32-ctrl').send({
+                type: 'broadcast', event: 'led_control', payload: { led_cmd: ledState }
             });
-        }
+        }).subscribe();
 
-        // 初回自動接続起動
-        connectMQTT();
-
-        // ボタンを叩いた時、固定されたMQTTコネクションからパケットを瞬間射出
         function toggleRemoteLed() {
             ledState = !ledState;
             const btn = document.getElementById('ledBtn');
-            
-            if(ledState) {
-                btn.innerText = "SEND: LED OFF";
-                btn.className = "btn-led active";
-            } else {
-                btn.innerText = "SEND: LED ON";
-                btn.className = "btn-led";
-            }
+            btn.innerText = ledState ? "SEND: LED OFF" : "SEND: LED ON";
+            btn.className = ledState ? "btn-led active" : "btn-led";
 
-            const payload = JSON.stringify({ led_cmd: ledState });
-            const message = new Paho.MQTT.Message(payload);
-            message.destinationName = "realtime/public/esp32-ctrl";
-            
-            // クラウド上のトピックへパブリッシュ（インフラのキックを100%回避）
-            client.send(message);
+            // 命令をクラウドへ即座に送信
+            supabase.channel('public:esp32-ctrl').send({
+                type: 'broadcast', event: 'led_control', payload: { led_cmd: ledState }
+            });
         }
     </script>
 </body>
