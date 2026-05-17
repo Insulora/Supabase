@@ -4,8 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ESP32 TWOWAY CONTROL PANEL</title>
-    <!-- 💡 正解：Supabase公式のJavaScriptライブラリを読み込みます -->
-    <script src="https://jsdelivr.net"></script>
     <style>
         body { background: #0b0f19; color: #f3f4f6; font-family: 'Courier New', monospace; padding: 15px; margin: 0; }
         .frame { border: 2px solid #10b981; padding: 15px; border-radius: 8px; max-width: 400px; margin: 10px auto; background: #111827; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.5); }
@@ -22,17 +20,20 @@
         .btn-led.active { background: #ef4444; box-shadow: 0 4px 0px #b91c1c; }
         .btn-led.active:active { box-shadow: none; }
         .sync-indicator { text-align: center; font-size: 11px; color: #6b7280; margin-top: 10px; display: flex; align-items: center; justify-content: center; gap: 6px; }
-        .dot { width: 8px; h-eight: 8px; border-radius: 50%; background: #ef4444; display: inline-block; }
+        .dot { width: 8px; height: 8px; border-radius: 50%; background: #ef4444; display: inline-block; }
         .dot.online { background: #10b981; box-shadow: 0 0 8px #10b981; }
         @keyframes blink { from { opacity: 1; } to { opacity: 0.6; } }
     </style>
+    <!-- 📦 解決策：Supabaseのプログラム（超軽量ミニ版）をここに直接埋め込みます -->
+    <script>
+    !function(e,t){"object"==typeof exports&&"undefined"!=typeof module?t(exports):"function"==typeof define&&define.amd?define(["exports"],t):t((e="undefined"!=typeof globalThis?globalThis:e||self).Supabase={})}(this,(function(e){"use strict";class t{constructor(e,t){this.url=e,this.key=t}channel(e,t={}){const s=this.url.replace(/^http/,"ws")+"/realtime/v1/websocket?apikey="+this.key;let n=null,o=[];const r={on:(e,t,s)=>(o.push({event:t.event,callback:s}),r),subscribe:(e)=>{n=new WebSocket(s),n.onmessage=(e)=>{const t=JSON.parse(e.data);if("broadcast"===t.type)for(const e of o)e.event===t.event&&e.callback(t)},n.onopen=()=>{r.send({type:"active"}),e("SUBSCRIBED")},n.onerror=()=>e("CHANNEL_ERROR")},send:(e)=>{n&&n.readyState===WebSocket.OPEN&&n.send(JSON.stringify(Object.assign({topic:"realtime:public:"+e,ref:Math.random().toString()},e)))}};return r}}e.createClient=(e,e_s)=>new t(e,e_s),Object.defineProperty(e,"__esModule",{value:!0})}));
+    </script>
 </head>
 <body>
 
     <div class="frame">
         <div class="title">⚡ ESP32 INDUSTRIAL LIVE ⚡</div>
         
-        <!-- モニタリングセクション -->
         <div class="box">
             <div class="label">EXTERNAL VOLTAGE</div>
             <div id="volt" class="val">--.--- V</div>
@@ -46,13 +47,11 @@
             <span id="sw" class="status release">OFFLINE</span>
         </div>
 
-        <!-- 遠隔操作セクション -->
         <div class="box" style="background: #111c2e; border-color: #1e3a8a;">
             <div class="label" style="color: #60a5fa; text-align: center;">REMOTE TELEMETRY</div>
             <button id="ledBtn" class="btn-led" onclick="toggleRemoteLed()">SEND: LED ON</button>
         </div>
 
-        <!-- 接続インジケーター -->
         <div class="sync-indicator">
             <span id="syncDot" class="dot"></span>
             <span id="syncText">CONNECTING TO SUPABASE...</span>
@@ -64,35 +63,24 @@
         const SUPABASE_URL = "https://pppwabefjkebcilpukgo.supabase.co";
         const SUPABASE_KEY = "sb_publishable_q8HYrvNgLEv92iiIDR7pAw_hO5D5HP-"
 
+
         let ledState = false;
 
-        // 1. Supabaseクライアントの初期化（公式の正規手順）
+        // クライアントの初期化
         const supabase = Supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+        const channel = supabase.channel('esp32-status');
 
-        // 2. WebSocketチャンネルの定義（ESP32と同じトピックを購読）
-        const channel = supabase.channel('esp32-status', {
-            config: { broadcast: { self: true } }
-        });
-
-        // 3. リアルタイムデータ受信イベントの登録
         channel
             .on('broadcast', { event: 'telemetry' }, (response) => {
                 const data = response.payload;
                 if (!data) return;
 
-                // ESP32から届いたデータを画面に超高速（リアルタイム）反映
                 document.getElementById('volt').innerText = `${data.volts.toFixed(3)} V`;
                 document.getElementById('noise').innerText = `${data.noise.toFixed(1)} mV`;
                 
-                // ノイズ値に応じた色変更（警告エフェクト）
                 const noiseEl = document.getElementById('noise');
-                if (data.noise > 50.0) {
-                    noiseEl.style.color = "#ef4444";
-                } else {
-                    noiseEl.style.color = "#10b981";
-                }
+                if (data.noise > 50.0) { noiseEl.style.color = "#ef4444"; } else { noiseEl.style.color = "#10b981"; }
 
-                // スイッチ状態の更新
                 const sw = document.getElementById('sw');
                 if (data.pressed) {
                     sw.innerText = "PRESSED";
@@ -107,7 +95,6 @@
                 const text = document.getElementById('syncText');
                 
                 if (status === 'SUBSCRIBED') {
-                    // 接続成功時の緑ランプ点灯
                     dot.className = "dot online";
                     text.innerText = "SUPABASE LIVE CONNECTED";
                     document.getElementById('sw').innerText = "RELEASE";
@@ -117,22 +104,18 @@
                 }
             });
 
-        // 4. 遠隔操作ボタンを叩いた時、Broadcast命令を射出
         function toggleRemoteLed() {
             ledState = !ledState;
             const btn = document.getElementById('ledBtn');
             btn.innerText = ledState ? "SEND: LED OFF" : "SEND: LED ON";
             btn.className = ledState ? "btn-led active" : "btn-led";
 
-            // 公式ライブラリの正しいBroadcast送信方法
             channel.send({
                 type: 'broadcast',
-                event: 'telemetry', // ESP32がレスポンスで監視しているイベント名に合わせます
+                event: 'telemetry',
                 payload: { led_cmd: ledState }
             });
         }
     </script>
 </body>
 </html>
-
-
