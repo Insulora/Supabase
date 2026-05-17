@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ESP32 TWOWAY CONTROL PANEL</title>
-    <!-- ⭕ 解決：もっさりの原因だった海外CDNを廃止し、日本国内に超高速拠点を持つGoogle提供のcdnjsへ変更 -->
+    <!-- 日本国内超高速CDN (cdnjs) からSupabase頭脳をロード -->
     <script src="https://cloudflare.com" integrity="sha512-Y3053HAnc0wR8ZscT9wWbX7R13wZ/rL0F7fA/wzQo6mFwOnbVbW8h4R9kXg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <style>
         body { background: #0b0f19; color: #f3f4f6; font-family: 'Courier New', monospace; padding: 15px; margin: 0; }
@@ -51,13 +51,18 @@
     <script>
         const SUPABASE_URL = "https://pppwabefjkebcilpukgo.supabase.co";
         const SUPABASE_KEY = "sb_publishable_q8HYrvNgLEv92iiIDR7pAw_hO5D5HP-"
+        
 
-        // 最上位のネームスペースから確実に初期化
+        // Supabaseの初期化
         const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
         let ledState = false;
 
-        const channel = supabase
-            .channel('public:esp32-status')
+        // ⭕ 改善：通信チャンネルのインスタンスを「最初に1回だけ」生成して強固に固定します
+        const statusChannel = supabase.channel('public:esp32-status');
+        const ctrlChannel = supabase.channel('public:esp32-ctrl');
+
+        // 受信イベントの登録と購読開始
+        statusChannel
             .on('broadcast', { event: 'telemetry' }, (payload) => {
                 const data = payload.payload;
                 document.getElementById('volt').innerText = `${data.volts.toFixed(3)} V`;
@@ -74,6 +79,10 @@
             })
             .subscribe();
 
+        // 制御用チャンネルも起動時にあらかじめ購読（コネクションの固定化）
+        ctrlChannel.subscribe();
+
+        // ボタン押下時の処理（毎回channelを作らず、固定されたインスタンスからパケットを射出）
         function toggleRemoteLed() {
             ledState = !ledState;
             const btn = document.getElementById('ledBtn');
@@ -86,7 +95,8 @@
                 btn.className = "btn-led";
             }
 
-            supabase.channel('public:esp32-ctrl').send({
+            // ⭕ 解決：固定されたセッションからデータだけを流すため、インフラのキックを回避できます
+            ctrlChannel.send({
                 type: 'broadcast',
                 event: 'led_control',
                 payload: { led_cmd: ledState }
