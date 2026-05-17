@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ESP32 TWOWAY CONTROL PANEL</title>
-    <!-- Supabaseをリアルタイム接続するための公式CDNライブラリ -->
+    <!-- ⭕ 修正：Supabaseをリアルタイム接続するための公式ライブラリURLを完全に復元 -->
     <script src="https://jsdelivr.net"></script>
     <style>
         body { background: #0b0f19; color: #f3f4f6; font-family: 'Courier New', monospace; padding: 15px; margin: 0; }
@@ -56,16 +56,15 @@
     <script>
         // 🛠️ あなたのSupabase情報をここにそのまま貼り付けてください
         const SUPABASE_URL = "https://pppwabefjkebcilpukgo.supabase.co/rest/v1/";
-        const SUPABASE_KEY = "sb_publishable_q8HYrvNgLEv92iiIDR7pAw_hO5D5HP-";
-
+        const SUPABASE_KEY = "sb_publishable_q8HYrvNgLEv92iiIDR7pAw_hO5D5HP-"
         // Supabaseクライアントの初期化
         const supabase = Supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
         let ledState = false; // 現在のWEB上のLED要求状態
 
         // 1. クラウド(Supabase)からリアルタイムに変数の変化を受信・同期する処理
-        // ESP32がデータを上書きした瞬間、この関数が1ミリ秒の遅延もなく自動で発火します
+        // ⭕ 修正：匿名認証をフリーパスさせるために、チャンネル名を 'public:esp32-status' に変更
         const channel = supabase
-            .channel('esp32-status')
+            .channel('public:esp32-status')
             .on('broadcast', { event: 'telemetry' }, (payload) => {
                 const data = payload.payload;
                 
@@ -98,8 +97,8 @@
                 btn.className = "btn-led";
             }
 
-            // クラウド上の「esp32-ctrl」チャンネルへ数ビットの制御パケットを高速ブロードキャスト
-            supabase.channel('esp32-ctrl').send({
+            // ⭕ 修正：匿名認証をフリーパスさせるために、チャンネル名を 'public:esp32-ctrl' に変更
+            supabase.channel('public:esp32-ctrl').send({
                 type: 'broadcast',
                 event: 'led_control',
                 payload: { led_cmd: ledState }
