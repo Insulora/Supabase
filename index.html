@@ -29,6 +29,7 @@
     <div class="frame">
         <div class="title">⚡ ESP32 INDUSTRIAL LIVE ⚡</div>
         
+        <!-- モニタリングセクション -->
         <div class="box">
             <div class="label">EXTERNAL VOLTAGE</div>
             <div id="volt" class="val">--.--- V</div>
@@ -42,6 +43,7 @@
             <span id="sw" class="status release">RELEASE</span>
         </div>
 
+        <!-- 遠隔操作セクション -->
         <div class="box" style="background: #111c2e; border-color: #1e3a8a;">
             <div class="label" style="color: #60a5fa; text-align: center;">REMOTE TELEMETRY</div>
             <button id="ledBtn" class="btn-led" onclick="toggleRemoteLed()">SEND: LED ON</button>
@@ -49,14 +51,19 @@
     </div>
 
     <script>
+        // 🛠️ あなたのSupabase情報を正確に入力してください（URLの最後は .co で終わる形式）
         const SUPABASE_URL = "pppwabefjkebcilpukgo.supabase.co";
         const SUPABASE_KEY = "sb_publishable_q8HYrvNgLEv92iiIDR7pAw_hO5D5HP-"
         const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
         let ledState = false;
 
-        // ESP32から届くデータを常時キャッチするリアルタイム監視チャンネルの確立
-        const channel = supabase
-            .channel('public:esp32-status')
+        // ⭕ 修正：ESP32（HTTPSリクエスト）のトピック定義と1文字の狂いもなく完全合致させます
+        // realtime:public:esp32-status と realtime:public:esp32-ctrl にチャンネル名を適正化
+        const statusChannel = supabase.channel('realtime:public:esp32-status');
+        const ctrlChannel = supabase.channel('realtime:public:esp32-ctrl');
+
+        // 受信イベントの登録と購読開始
+        statusChannel
             .on('broadcast', { event: 'telemetry' }, (payload) => {
                 const data = payload.payload;
                 document.getElementById('volt').innerText = `${data.volts.toFixed(3)} V`;
@@ -73,12 +80,8 @@
             })
             .subscribe();
 
-        // ⭕ ESP32からアクセスがあった際、このWEB上のLED状態（ON/OFF）を自動返却するインターフェース
-        supabase.channel('public:esp32-ctrl').on('broadcast', { event: 'led_req' }, () => {
-            supabase.channel('public:esp32-ctrl').send({
-                type: 'broadcast', event: 'led_control', payload: { led_cmd: ledState }
-            });
-        }).subscribe();
+        // 制御用チャンネルも起動時にあらかじめ購読固定
+        ctrlChannel.subscribe();
 
         function toggleRemoteLed() {
             ledState = !ledState;
@@ -86,9 +89,11 @@
             btn.innerText = ledState ? "SEND: LED OFF" : "SEND: LED ON";
             btn.className = ledState ? "btn-led active" : "btn-led";
 
-            // 命令をクラウドへ即座に送信
-            supabase.channel('public:esp32-ctrl').send({
-                type: 'broadcast', event: 'led_control', payload: { led_cmd: ledState }
+            // ⭕ 修正：固定されたセッションから、ESP32が待っているイベント名でデータを流します
+            ctrlChannel.send({
+                type: 'broadcast',
+                event: 'led_control',
+                payload: { led_cmd: ledState }
             });
         }
     </script>
