@@ -55,36 +55,43 @@
 
         let ledState = false;
 
-        // ⭕ 解決：複雑なリアルタイム購読を止め、インフラのデータベース履歴から直接最新値を「1秒おきに強制回収」する仕組みに刷新
+         // ⭕ 修正版：Supabaseの正規ルールに沿った fetch 処理
         async function fetchLatestData() {
             try {
-                // ESP32がPOSTした最新の「telemetry」イベントの生履歴をAPI経由でダイレクトに取得
-                const response = await fetch(`${SUPABASE_URL}/realtime/v1/api/broadcast?topic=realtime:public:esp32-status`, {
+                // URLに直接変なクエリをつけず、エンドポイントを綺麗にします
+                const response = await fetch(`${SUPABASE_URL}/realtime/v1/api/broadcast`, {
                     method: 'GET',
                     headers: {
                         'apikey': SUPABASE_KEY,
-                        'Authorization': `Bearer ${SUPABASE_KEY}`
+                        'Authorization': `Bearer ${SUPABASE_KEY}`,
+                        'Content-Type': 'application/json'
                     }
                 });
 
                 if (response.ok) {
                     const resData = await response.json();
-                    // 最新のメッセージパケットが存在すれば画面を書き換え
+                    
+                    // 💡 Supabaseから返ってきたすべてのリアルタイムメッセージから、
+                    // 今回の「esp32-status」トピックのデータだけをフィルターして抽出します
                     if (resData && resData.messages && resData.messages.length > 0) {
-                        const latestMsg = resData.messages[resData.messages.length - 1];
-                        const data = latestMsg.payload;
+                        const espMsgs = resData.messages.filter(m => m.topic === "realtime:public:esp32-status");
                         
-                        if (data) {
-                            document.getElementById('volt').innerText = `${data.volts.toFixed(3)} V`;
-                            document.getElementById('noise').innerText = `${data.noise.toFixed(1)} mV`;
+                        if (espMsgs.length > 0) {
+                            const latestMsg = espMsgs[espMsgs.length - 1];
+                            const data = latestMsg.payload;
                             
-                            const sw = document.getElementById('sw');
-                            if(data.pressed) {
-                                sw.innerText = "PRESSED";
-                                sw.className = "status pressed";
-                            } else {
-                                sw.innerText = "RELEASE";
-                                sw.className = "status release";
+                            if (data) {
+                                document.getElementById('volt').innerText = `${data.volts.toFixed(3)} V`;
+                                document.getElementById('noise').innerText = `${data.noise.toFixed(1)} mV`;
+                                
+                                const sw = document.getElementById('sw');
+                                if(data.pressed) {
+                                    sw.innerText = "PRESSED";
+                                    sw.className = "status pressed";
+                                } else {
+                                    sw.innerText = "RELEASE";
+                                    sw.className = "status release";
+                                }
                             }
                         }
                     }
