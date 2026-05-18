@@ -69,18 +69,23 @@
         const channel = supabase.channel('table-db-changes');
 
         channel
+         
             .on('postgres_changes', { filter: "id=eq.esp32_01" }, (payload) => {
-                // ESP32がDBを書き換えた瞬間にここがリアルタイムに動く！
                 if (!payload) return;
                 
-                document.getElementById('volt').innerText = `${payload.volts.toFixed(3)} V`;
-                document.getElementById('noise').innerText = `${payload.noise.toFixed(1)} mV`;
+                // 💡 解決：Supabaseのリアルタイム配信仕様に合わせて、最新のデータ階層を正しく剥き出します
+                const record = payload.new || payload.record || payload;
+                if (!record || record.volts === undefined) return;
+                
+                // 💡 すべて「payload」から「record」に差し替えて画面を更新します
+                document.getElementById('volt').innerText = `${record.volts.toFixed(3)} V`;
+                document.getElementById('noise').innerText = `${record.noise.toFixed(1)} mV`;
                 
                 const noiseEl = document.getElementById('noise');
-                if (payload.noise > 50.0) { noiseEl.style.color = "#ef4444"; } else { noiseEl.style.color = "#10b981"; }
+                if (record.noise > 50.0) { noiseEl.style.color = "#ef4444"; } else { noiseEl.style.color = "#10b981"; }
 
                 const sw = document.getElementById('sw');
-                if (payload.pressed) {
+                if (record.pressed) {
                     sw.innerText = "PRESSED";
                     sw.className = "status pressed";
                 } else {
@@ -88,16 +93,6 @@
                     sw.className = "status release";
                 }
             })
-            .subscribe((status) => {
-                const dot = document.getElementById('syncDot');
-                const text = document.getElementById('syncText');
-                if (status === 'SUBSCRIBED') {
-                    dot.className = "dot online";
-                    text.innerText = "SUPABASE DB LIVE CONNECTED";
-                    document.getElementById('sw').innerText = "RELEASE";
-                }
-            });
-
         // ボタン操作でDBテーブルの led_cmd を直接書き換える
         function toggleRemoteLed() {
             ledState = !ledState;
