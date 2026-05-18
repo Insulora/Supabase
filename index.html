@@ -24,12 +24,6 @@
         .dot.online { background: #10b981; box-shadow: 0 0 8px #10b981; }
         @keyframes blink { from { opacity: 1; } to { opacity: 0.6; } }
     </style>
-    <!-- 📦 解決策：Supabase公式リアルタイムSDK製品版(v2)を圧縮して100%ここに埋め込み -->
-    <script src="https://github.io" onerror="let s=document.createElement('script');s.src='https://cloudflare.com"></script>
-    <script>
-    // 万が一CDNが詰まった場合のための、公式Realtimeモジュール超互換ラッパー
-    if(typeof Supabase==="undefined"){!function(e,t){"object"==typeof exports&&"undefined"!=typeof module?t(exports):"function"==typeof define&&define.amd?define(["exports"],t):t((e="undefined"!=typeof globalThis?globalThis:e||self).Supabase={})}(this,(function(e){"use strict";class t{constructor(e,t){this.url=e,this.key=t}channel(e){const t=this.url.replace(/^http/,"ws")+"/realtime/v1/websocket?apikey="+this.key;let s=null,n=[];const o={on:(e,t,s)=>(n.push({callback:s}),o),subscribe:(e)=>{s=new WebSocket(t),s.onmessage=(e)=>{const t=JSON.parse(e.data);if(t.payload&&("UPDATE"===t.payload.type||"INSERT"===t.payload.type))for(const e of n)e.callback(t.payload);if(t.payload&&t.payload.data&&t.payload.data.record)for(const e of n)e.callback({new:t.payload.data.record})},s.onopen=()=>{s.send(JSON.stringify({topic:"realtime:public",event:"phx_join",payload:{},ref:"1"})),e("SUBSCRIBED")},s.onerror=()=>e("CHANNEL_ERROR")},send:async(e)=>{await fetch(this.url+"/rest/v1/"+e.table+"?id=eq.esp32_01",{method:"PATCH",headers:{apikey:this.key,Authorization:"Bearer "+this.key,"Content-Type":"application/json"},body:JSON.stringify(e.payload)})}};return o}}e.createClient=(e,e_s)=>new t(e,e_s),Object.defineProperty(e,"__esModule",{value:!0})}))}
-    </script>
 </head>
 <body>
 
@@ -64,61 +58,83 @@
         // 🛠️ あなたのSupabase情報を正確に入力してください
         const SUPABASE_URL = "https://pppwabefjkebcilpukgo.supabase.co";
         const SUPABASE_KEY = "sb_publishable_q8HYrvNgLEv92iiIDR7pAw_hO5D5HP-"
-
         let ledState = false;
-        
-        // クライアント起動
-        const supabase = Supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-        const channel = supabase.channel('table-db-changes');
 
-        channel
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'device_status' }, (payload) => {
-                // 💡 データベース更新データの抽出
-                const record = payload.new || payload.record || (payload.data ? payload.data.record : null) || payload;
-                if (!record || record.volts === undefined) return;
-                
-                // 画面要素書き換え
-                document.getElementById('volt').innerText = `${record.volts.toFixed(3)} V`;
-                document.getElementById('noise').innerText = `${record.noise.toFixed(1)} mV`;
-                
-                const noiseEl = document.getElementById('noise');
-                if (record.noise > 50.0) { noiseEl.style.color = "#ef4444"; } else { noiseEl.style.color = "#10b981"; }
+        // 💡 解決策：1秒おきにデータベース(device_status)の「esp32_01」の行を直接読みに行く
+        async function fetchLatestData() {
+            try {
+                const response = await fetch(`${SUPABASE_URL}/rest/v1/device_status?id=eq.esp32_01&select=*`, {
+                    method: 'GET',
+                    headers: {
+                        'apikey': SUPABASE_KEY,
+                        'Authorization': `Bearer ${SUPABASE_KEY}`,
+                        'Accept': 'application/json'
+                    }
+                });
 
-                const sw = document.getElementById('sw');
-                if (record.pressed) {
-                    sw.innerText = "PRESSED";
-                    sw.className = "status pressed";
+                if (response.ok) {
+                    const dataArray = await response.json();
+                    
+                    if (dataArray && dataArray.length > 0) {
+                        const record = dataArray[0]; // 0番目の要素(最新レコード)を取得
+                        
+                        // 画面要素書き換え
+                        document.getElementById('volt').innerText = `${record.volts.toFixed(3)} V`;
+                        document.getElementById('noise').innerText = `${record.noise.toFixed(1)} mV`;
+                        
+                        const noiseEl = document.getElementById('noise');
+                        if (record.noise > 50.0) { noiseEl.style.color = "#ef4444"; } else { noiseEl.style.color = "#10b981"; }
+
+                        const sw = document.getElementById('sw');
+                        if (record.pressed) {
+                            sw.innerText = "PRESSED";
+                            sw.className = "status pressed";
+                        } else {
+                            sw.innerText = "RELEASE";
+                            sw.className = "status release";
+                        }
+
+                        // ランプを緑にする
+                        document.getElementById('syncDot').className = "dot online";
+                        document.getElementById('syncText').innerText = "SUPABASE DB LIVE CONNECTED";
+                    }
                 } else {
-                    sw.innerText = "RELEASE";
-                    sw.className = "status release";
+                    document.getElementById('syncDot').className = "dot";
+                    document.getElementById('syncText').innerText = "HTTP ERROR: " + response.status;
                 }
-            })
-            .subscribe((status) => {
-                const dot = document.getElementById('syncDot');
-                const text = document.getElementById('syncText');
-                if (status === 'SUBSCRIBED') {
-                    dot.className = "dot online";
-                    text.innerText = "SUPABASE DB LIVE CONNECTED";
-                    document.getElementById('sw').innerText = "RELEASE";
-                } else if (status === 'CHANNEL_ERROR') {
-                    dot.className = "dot";
-                    text.innerText = "CONNECTION ERROR";
-                }
-            });
+            } catch (error) {
+                console.error("Fetch failed:", error);
+                document.getElementById('syncDot').className = "dot";
+                document.getElementById('syncText').innerText = "CONNECTION ERROR";
+            }
+        }
 
-        // ボタン操作
-        function toggleRemoteLed() {
+        // 1秒おきに自動実行
+        setInterval(fetchLatestData, 1000);
+        fetchLatestData();
+
+        // 💡 解決策：ボタンを押したら、データベースの led_cmd カラムだけを書き換える
+        async function toggleRemoteLed() {
             ledState = !ledState;
             const btn = document.getElementById('ledBtn');
             btn.innerText = ledState ? "SEND: LED OFF" : "SEND: LED ON";
             btn.className = ledState ? "btn-led active" : "btn-led";
 
-            channel.send({
-                table: 'device_status',
-                payload: { led_cmd: ledState }
-            });
+            try {
+                await fetch(`${SUPABASE_URL}/rest/v1/device_status?id=eq.esp32_01`, {
+                    method: 'PATCH',
+                    headers: {
+                        'apikey': SUPABASE_KEY,
+                        'Authorization': `Bearer ${SUPABASE_KEY}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ led_cmd: ledState })
+                });
+                console.log("LED命令をDBに書き込みました:", ledState);
+            } catch (error) {
+                console.error("LED send failed:", error);
+            }
         }
     </script>
 </body>
 </html>
-
