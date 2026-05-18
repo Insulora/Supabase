@@ -55,20 +55,19 @@
     </div>
 
     <script>
-        // 🛠️ あなたのSupabase情報を正確に入力してください
         const SUPABASE_URL = "https://pppwabefjkebcilpukgo.supabase.co";
         const SUPABASE_KEY = "sb_publishable_q8HYrvNgLEv92iiIDR7pAw_hO5D5HP-"
+
         let ledState = false;
 
-        // 💡 解決策：1秒おきにデータベース(device_status)の「esp32_01」の行を直接読みに行く
         async function fetchLatestData() {
             try {
-                const response = await fetch(`${SUPABASE_URL}/rest/v1/device_status?id=eq.esp32_01&select=*`, {
-                    method: 'GET',
+                const response = await fetch(SUPABASE_URL + "/rest/v1/device_status?id=eq.esp32_01&select=*", {
+                    method: "GET",
                     headers: {
-                        'apikey': SUPABASE_KEY,
-                        'Authorization': `Bearer ${SUPABASE_KEY}`,
-                        'Accept': 'application/json'
+                        "apikey": SUPABASE_KEY,
+                        "Authorization": "Bearer " + SUPABASE_KEY,
+                        "Accept": "application/json"
                     }
                 });
 
@@ -76,16 +75,19 @@
                     const dataArray = await response.json();
                     
                     if (dataArray && dataArray.length > 0) {
-                        const record = dataArray[0]; // 0番目の要素(最新レコード)を取得
+                        const record = dataArray[0];
                         
-                        // 画面要素書き換え
-                        document.getElementById('volt').innerText = `${record.volts.toFixed(3)} V`;
-                        document.getElementById('noise').innerText = `${record.noise.toFixed(1)} mV`;
+                        document.getElementById("volt").innerText = record.volts.toFixed(3) + " V";
+                        document.getElementById("noise").innerText = record.noise.toFixed(1) + " mV";
                         
-                        const noiseEl = document.getElementById('noise');
-                        if (record.noise > 50.0) { noiseEl.style.color = "#ef4444"; } else { noiseEl.style.color = "#10b981"; }
+                        const noiseEl = document.getElementById("noise");
+                        if (record.noise > 50.0) { 
+                            noiseEl.style.color = "#ef4444"; 
+                        } else { 
+                            noiseEl.style.color = "#10b981"; 
+                        }
 
-                        const sw = document.getElementById('sw');
+                        const sw = document.getElementById("sw");
                         if (record.pressed) {
                             sw.innerText = "PRESSED";
                             sw.className = "status pressed";
@@ -94,45 +96,42 @@
                             sw.className = "status release";
                         }
 
-                        // ランプを緑にする
-                        document.getElementById('syncDot').className = "dot online";
-                        document.getElementById('syncText').innerText = "SUPABASE DB LIVE CONNECTED";
+                        document.getElementById("syncDot").className = "dot online";
+                        document.getElementById("syncText").innerText = "SUPABASE DB LIVE CONNECTED";
                     }
                 } else {
-                    document.getElementById('syncDot').className = "dot";
-                    document.getElementById('syncText').innerText = "HTTP ERROR: " + response.status;
+                    document.getElementById("syncDot").className = "dot";
+                    document.getElementById("syncText").innerText = "HTTP ERROR: " + response.status;
                 }
             } catch (error) {
                 console.error("Fetch failed:", error);
-                document.getElementById('syncDot').className = "dot";
-                document.getElementById('syncText').innerText = "CONNECTION ERROR";
+                document.getElementById("syncDot").className = "dot";
+                document.getElementById("syncText").innerText = "CONNECTION ERROR";
             }
         }
 
-        // 1秒おきに自動実行
         setInterval(fetchLatestData, 1000);
         fetchLatestData();
 
-        // 💡 解決策：ボタンを押したら、データベースの led_cmd カラムだけを書き換える
         async function toggleRemoteLed() {
             ledState = !ledState;
-            const btn = document.getElementById('ledBtn');
+            const btn = document.getElementById("ledBtn");
             btn.innerText = ledState ? "SEND: LED OFF" : "SEND: LED ON";
             btn.className = ledState ? "btn-led active" : "btn-led";
 
             try {
-                await fetch(`${SUPABASE_URL}/rest/v1/device_status?id=eq.esp32_01`, {
-                    method: 'PATCH',
+                await fetch(SUPABASE_URL + "/rest/v1/device_status?id=eq.esp32_01", {
+                    method: "PATCH",
                     headers: {
-                        'apikey': SUPABASE_KEY,
-                        'Authorization': `Bearer ${SUPABASE_KEY}`,
-                        'Content-Type': 'application/json'
+                        "apikey": SUPABASE_KEY,
+                        "Authorization": "Bearer " + SUPABASE_KEY,
+                        "Content-Type": "application/json"
                     },
                     body: JSON.stringify({ led_cmd: ledState })
                 });
-                console.log("LED命令をDBに書き込みました:", ledState);
+                console.log("LED success:", ledState);
             } catch (error) {
-                console.error("LED send failed:", error);
+                console.error("LED failed:", error);
             }
         }
     </script>
