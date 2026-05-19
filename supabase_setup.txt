@@ -1,0 +1,20 @@
+sql-- 1. テーブルの作成
+create table if not exists public.device_status (
+  id text primary key,
+  volts float8 default 0.0,
+  noise float8 default 0.0,
+  pressed boolean default false,
+  led_cmd boolean default false,
+  updated_at timestamp with time zone default now() not null
+);
+
+-- 2. リアルタイム配信機能の有効化
+alter publication supabase_realtime add table public.device_status;
+
+-- 3. 行セキュリティ（RLS）の解除（誰でも読み書きOKにする）
+alter table public.device_status disable row level security;
+
+-- 4. 初期レコードのインサート
+insert into public.device_status (id, volts, noise, pressed, led_cmd)
+values ('esp32_01', 0.0, 0.0, false, false)
+on conflict (id) do nothing;
