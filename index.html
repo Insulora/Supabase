@@ -55,18 +55,173 @@
     </div>
 
     <script>
-        const SUPABASE_URL = "https://pppwabefjkebcilpukgo.supabase.co";
+        // 💡 1. 住所の設定（/rest/v1は含めない正確なドメイン）
+        const SUPABASE_URL = "https://pppwabefjkebcilpukgo.suffpabase.co";
+        
+        // 💡 2. 鍵の設定（先ほど「New Publishable API key」で生成したキーをここに貼り付け）
         const SUPABASE_KEY = "sb_publishable_orkeACes282SWr-i9lnaTQ_rh57ciVq";
         let ledState = false;
 
         async function fetchLatestData() {
             try {
+                // 正しいエンドポイントでデータベースを毎秒監視
                 const response = await fetch(SUPABASE_URL + "/rest/v1/device_status?id=eq.esp32_01&select=*", {
                     method: "GET",
                     headers: {
                         "apikey": SUPABASE_KEY,
                         "Authorization": "Bearer " + SUPABASE_KEY,
                         "Accept": "application/json"
+                    }
+                });
+
+                if (response.ok) {
+                    const dataArray = await response.json();
+                    
+                    // 大文字小文字のバグ、および配列アクセスのバグをすべて完全修正
+                    if (dataArray && dataArray.length > 0) {
+                        const record = dataArray[0]; // 💡 0番目のデータを小文字のyで確実に指定
+                        
+                        document.getElementById("volt").innerText = record.volts.toFixed(3) + " V";
+                        document.getElementById("noise").innerText = record.noise.toFixed(1) + " mV";
+                        
+                        const noiseEl = document.getElementById("noise");
+                        if (record.noise > 50.0) { 
+                            noiseEl.style.color = "#ef4444"; 
+                        } else { 
+                            noiseEl.style.color = "#10b981"; 
+                        }
+
+                        const sw = document.getElementById("sw");
+                        if (record.pressed) {
+                            sw.innerText = "PRESSED";
+                            sw.className = "status pressed";
+                        } else {
+                            sw.innerText = "RELEASE";
+                            sw.className = "status release";
+                        }
+
+                        // ランプを正常点灯させる
+                        document.getElementById("syncDot").className = "dot online";
+                        document.getElementById("syncText").innerText = "SUPABASE DB LIVE CONNECTED";
+                    }
+                } else {
+                    document.getElementById("syncDot").className = "dot";
+                    document.getElementById("syncText").innerText = "HTTP ERROR: " + response.status;
+                }
+            } catch (error) {
+                console.error("Fetch failed:", error);
+                document.getElementById("syncDot").className = "dot";
+                document.getElementById("syncText").innerText = "CONNECTION ERROR";
+            }
+        }
+
+        // 1秒タイマー起動
+        setInterval(fetchLatestData, 1000);
+        fetchLatestData();
+
+        // 遠隔操作ボタンの処理
+        async function toggleRemoteLed() {
+            ledState = !ledState;
+            const btn = document.getElementById("ledBtn");
+            btn.innerText = ledState ? "SEND: LED OFF" : "SEND: LED ON";
+            btn.className = ledState ? "btn-led active" : "btn-led";
+
+            try {
+                await fetch(SUPABASE_URL + "/rest/v1/device_status?id=eq.esp32_01", {
+                    method: "PATCH",
+                    headers: {
+                        "apikey": SUPABASE_KEY,
+                        "Authorization": "Bearer " + SUPABASE_KEY,
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({ led_cmd: ledState })
+                });
+                console.log("LED success:", ledState);
+            } catch (error) {
+                console.error("LED failed:", error);
+            }
+        }
+    </script>
+</body>
+</html>
+
+
+
+
+
+
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ESP32 TWOWAY CONTROL PANEL</title>
+    <style>
+        body { background: #0b0f19; color: #f3f4f6; font-family: 'Courier New', monospace; padding: 15px; margin: 0; }
+        .frame { border: 2px solid #10b981; padding: 15px; border-radius: 8px; max-width: 400px; margin: 10px auto; background: #111827; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.5); }
+        .title { color: #10b981; font-size: 18px; font-weight: bold; margin-bottom: 15px; border-bottom: 1px solid #1f2937; padding-bottom: 5px; text-align: center; }
+        .box { background: #1f2937; border: 1px solid #374151; padding: 15px; border-radius: 6px; margin-bottom: 15px; }
+        .label { color: #9ca3af; font-size: 12px; margin-bottom: 4px; }
+        .val { font-size: 26px; font-weight: bold; color: #ffffff; margin-bottom: 10px; }
+        .noise { font-size: 26px; font-weight: bold; color: #10b981; }
+        .status { display: inline-block; padding: 4px 12px; font-size: 14px; font-weight: bold; border-radius: 4px; text-transform: uppercase; }
+        .pressed { background: #ef4444; color: #ffffff; animation: blink 0.5s infinite alternate; }
+        .release { background: #4b5563; color: #d1d5db; }
+        .btn-led { width: 100%; padding: 15px; font-size: 18px; font-weight: bold; color: #ffffff; background: #3b82f6; border: none; border-radius: 6px; cursor: pointer; box-shadow: 0 4px 0px #1d4ed8; transition: 0.1s; text-align: center; margin-top: 10px; }
+        .btn-led:active { transform: translateY(4px); box-shadow: none; }
+        .btn-led.active { background: #ef4444; box-shadow: 0 4px 0px #b91c1c; }
+        .btn-led.active:active { box-shadow: none; }
+        .sync-indicator { text-align: center; font-size: 11px; color: #6b7280; margin-top: 10px; display: flex; align-items: center; justify-content: center; gap: 6px; }
+        .dot { width: 8px; height: 8px; border-radius: 50%; background: #ef4444; display: inline-block; }
+        .dot.online { background: #10b981; box-shadow: 0 0 8px #10b981; }
+        @keyframes blink { from { opacity: 1; } to { opacity: 0.6; } }
+    </style>
+</head>
+<body>
+
+    <div class="frame">
+        <div class="title">⚡ ESP32 INDUSTRIAL LIVE ⚡</div>
+        
+        <div class="box">
+            <div class="label">EXTERNAL VOLTAGE</div>
+            <div id="volt" class="val">--.--- V</div>
+            
+            <div class="label">POWER LINE NOISE</div>
+            <div id="noise" class="noise">--.- mV</div>
+        </div>
+
+        <div class="box" style="display: flex; justify-content: space-between; align-items: center;">
+            <span class="label" style="margin: 0;">BASE SWITCH(SW2)</span>
+            <span id="sw" class="status release">OFFLINE</span>
+        </div>
+
+        <div class="box" style="background: #111c2e; border-color: #1e3a8a;">
+            <div class="label" style="color: #60a5fa; text-align: center;">REMOTE TELEMETRY</div>
+            <button id="ledBtn" class="btn-led" onclick="toggleRemoteLed()">SEND: LED ON</button>
+        </div>
+
+        <div class="sync-indicator">
+            <span id="syncDot" class="dot"></span>
+            <span id="syncText">CONNECTING TO SUPABASE...</span>
+        </div>
+    </div>
+
+    <script>
+        //const SUPABASE_URL = "https://pppwabefjkebcilpukgo.supabase.co";
+        const SUPABASE_URL = "https://pppwabefjkebcilpukgo.supabase.co/rest/v1"
+        const SUPABASE_KEY = "sb_publishable_orkeACes282SWr-i9lnaTQ_rh57ciVq";
+        let ledState = false;
+
+        async function fetchLatestData() {
+            try {
+                // 💡 2. 解決：新仕様のクエリパラメータの順序と、ヘッダー認証の形を完全に一致させます
+                const response = await fetch(SUPABASE_URL + "/rest/v1/device_status?select=*&id=eq.esp32_01", {
+                    method: "GET",
+                    headers: {
+                        "apikey": SUPABASE_KEY,
+                        "Authorization": "Bearer " + SUPABASE_KEY,
+                        "Accept": "application/json",
+                        "Content-Type": "application/json"
                     }
                 });
 
